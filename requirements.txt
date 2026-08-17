@@ -1,0 +1,8 @@
+langgraph>=0.6
+openai>=1.109
+pydantic>=2.12
+python-pptx>=1.0
+lxml>=5.0
+Pillow>=10.4
+pypdf>=5.0
+pytest>=7.3

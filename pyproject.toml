@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lecture-summary-pipeline"
+version = "0.1.0"
+description = "Plan-then-assemble pipeline that turns a lecture transcript (plus optional slides) into proportionate, source-faithful study notes."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "langgraph>=0.6",
+    "openai>=1.109",
+    "pydantic>=2.12",
+    "python-pptx>=1.0",
+    "lxml>=5.0",
+    "Pillow>=10.4",
+    "pypdf>=5.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.3"]
+
+[project.scripts]
+lecture-summary = "lecture_summary_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["lecture_summary_pipeline*"]
