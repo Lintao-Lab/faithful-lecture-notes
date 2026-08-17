@@ -1,5 +1,7 @@
 # Faithful Lecture Notes
 
+**This repository shares an idea and an engineering approach, not course content — no lecture materials from any institution are included, no copyright infringement is intended, and you should check the copyright status of your own materials before uploading or sharing anything derived from them.**
+
 Turn a lecture transcript (plus optional slides) into proportionate, source-faithful study notes — engineered to keep the LLM honest.
 
 One **Architect** LLM call reads the full sources and plans the notes as structured section work orders. Parallel **Assembler** calls each write exactly one section: full sources, but only their own assignment. Deterministic code stitches the sections in plan order and audits the result.
