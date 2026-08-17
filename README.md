@@ -64,7 +64,7 @@ Key mechanisms:
 
 ## Make the prompts your own
 
-The structure is the product; the prompts are meant to be redesigned. The bundled prompts are tuned for university lectures and use occasional legal terminology as examples, but they are plain strings in `lecture_summary_pipeline/prompts.py` — you are encouraged to rewrite them for your own discipline, note style, or language while keeping the pipeline structure intact.
+The structure is the product; the prompts are meant to be redesigned. The bundled prompts are tuned for university lectures, but they are plain strings in `lecture_summary_pipeline/prompts.py` — you are encouraged to rewrite them for your own discipline, note style, or language while keeping the pipeline structure intact.
 
 The scaffolding makes such edits safe and manageable:
 

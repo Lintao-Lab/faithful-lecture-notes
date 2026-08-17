@@ -7,9 +7,9 @@ from pptx.util import Inches
 from lecture_summary_pipeline.pptx_to_llm_markdown import convert_pptx, strip_links
 
 
-def test_strip_links_keeps_visible_text_and_legal_citations() -> None:
-    value = "Read [source label](https://example.test/x) and [2025] VSC 714 https://noise.test"
-    assert strip_links(value).strip() == "Read source label and [2025] VSC 714"
+def test_strip_links_keeps_visible_text_and_citations() -> None:
+    value = "Read [source label](https://example.test/x) and [2025] REF 714 https://noise.test"
+    assert strip_links(value).strip() == "Read source label and [2025] REF 714"
 
 
 def test_converter_emits_link_free_text_and_inline_picture_content(
