@@ -1,6 +1,6 @@
-# Lecture Summary Pipeline
+# Faithful Lecture Notes
 
-Turn a lecture transcript (plus optional slides) into proportionate, source-faithful study notes. The pipeline follows a strict plan-then-assemble design: a single **Architect** LLM call reads the full sources and produces a structured Assembly Plan (a JSON set of section work orders); parallel **Assembler** LLM calls then each write exactly one section, seeing the full sources but only their own work order; deterministic code stitches the sections in plan order and runs a structural audit. **No LLM call ever reads or rewrites the whole generated document** — the anti-hallucination core of the design: the merge is mechanical, the audit is code, and every node checkpoints to disk so an interrupted run resumes exactly where it stopped.
+Turn a lecture transcript (plus optional slides) into proportionate, source-faithful study notes — engineered to keep the LLM honest. The pipeline follows a strict plan-then-assemble design: a single **Architect** LLM call reads the full sources and produces a structured Assembly Plan (a JSON set of section work orders); parallel **Assembler** LLM calls then each write exactly one section, seeing the full sources but only their own work order; deterministic code stitches the sections in plan order and runs a structural audit. **No LLM call ever reads or rewrites the whole generated document** — the anti-hallucination core of the design: the merge is mechanical, the audit is code, and every node checkpoints to disk so an interrupted run resumes exactly where it stopped.
 
 ## Architecture
 
