@@ -10,6 +10,8 @@ Two convictions shape everything in this pipeline:
 
 2. **Every node gets an independent, narrow context.** Each LLM call receives exactly the context its task needs and nothing more. Assemblers see the full sources but only their own work order, so they structurally cannot duplicate a neighbouring section's material. No call ever sees the stitched document, so no call can "improve" it into a fluent rewrite with invented content. Narrow contexts also mean smaller prompts, lower cost per call, and outputs that are easy to check mechanically.
 
+3. **A pipeline, not a skill.** A single do-everything prompt is fragile: it is hard to test, hard to version, and one edit changes every behaviour at once. This project takes the opposite approach — each node has its own small, fixed system prompt with a single responsibility and a machine-checkable output contract. Prompts here are *managed artefacts*, not incantations: every run stores the exact prompts it used under `prompts/` and hashes them into the run manifest, so a prompt edit is always visible and traceable, and the contract checks plus the structural audit catch a bad edit before it reaches your notes.
+
 The compounding effect is what makes the result trustworthy: hallucination risk concentrates in long, open-ended generation and in full-document rewriting, and this design removes both by construction. Each individual task is small enough to verify with a hard contract (valid JSON for the plan, an exact section heading for each section), so a failed call is caught and retried rather than silently degrading the notes.
 
 ## Architecture
@@ -51,6 +53,19 @@ Key mechanisms:
 |---|---|---|---|---|
 | Architect | 1 | Full transcript + slides | Assembly Plan (JSON), 6–9 sections for a typical 2-hour lecture | `deepseek-v4-pro`, temperature 0.5, thinking on, `reasoning_effort=max` |
 | Assembler | 1 per section, parallel | Full sources + global outline + own work order | One Markdown section | Same model, temperature 0.2, thinking on |
+
+## Make the prompts your own
+
+The structure is the product; the prompts are meant to be redesigned. The bundled prompts are tuned for university lectures — they occasionally mention cases and statutes because the pipeline was built on law lectures — but they are plain strings in `lecture_summary_pipeline/prompts.py`, and you are encouraged to rewrite them for your own discipline, note style, or language while keeping the pipeline structure intact.
+
+The scaffolding makes such edits safe and manageable:
+
+- **Keep the contract lines untouched.** The Architect prompt's "return exactly one valid JSON object" instruction and the Assembler prompt's "start directly with `## [section_id]. [section_title]`" rule are what `plan.py` and the retry logic verify. Change the substance freely; leave these output-contract sentences in place.
+- **Every edit is traceable.** A run records the exact prompts it used in `prompts/` and hashes them into `00_run_manifest.json`. Because the fingerprint covers the prompts, a prompt change means a new output directory rather than a silently mixed run — you always know which notes were produced by which prompt version.
+- **Failures surface loudly.** If a redesigned prompt breaks the output contract, the node retries and then fails with a clear error instead of emitting degraded notes; the final structural audit (`05_audit.json`) is unaffected by prompt content and still validates the result.
+- **Test cheaply.** Iterate against the bundled `examples/` mini-lecture, and run the mocked test suite (`pytest tests -q`) to confirm the mechanics still hold — neither costs API credit beyond your own smoke runs.
+
+If you build a variant that works well for a different field, that is the intended use of this repository: same engine, your prompts.
 
 ## Why an LLM API is required
 
