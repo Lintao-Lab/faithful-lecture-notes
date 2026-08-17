@@ -215,6 +215,12 @@ pytest tests -q
 
 The suite uses a mocked LLM client — it makes no network calls and spends no API credit. It covers plan validation, the audit, retries, resume/fingerprint behaviour, input routing, format conversion, and the API client's credential resolution.
 
+## Disclaimer
+
+This repository shares an idea and an engineering approach — a pipeline structure and its prompt patterns — not course content. It contains no lecture recordings, transcripts, or slides from any institution; the bundled example lecture is entirely fictional. No copyright infringement is intended.
+
+If you use this pipeline, the responsibility for the materials you process stays with you: check the copyright and licensing status of your lectures before uploading, sharing, or publishing anything derived from them, and obtain permission from the rights holder (usually your university or lecturer) where required.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
