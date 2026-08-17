@@ -64,7 +64,7 @@ Key mechanisms:
 
 ## Make the prompts your own
 
-The structure is the product; the prompts are meant to be redesigned. The bundled prompts are tuned for university lectures — they occasionally mention cases and statutes because the pipeline was built on law lectures — but they are plain strings in `lecture_summary_pipeline/prompts.py`, and you are encouraged to rewrite them for your own discipline, note style, or language while keeping the pipeline structure intact.
+The structure is the product; the prompts are meant to be redesigned. The bundled prompts are tuned for university lectures and use occasional legal terminology as examples, but they are plain strings in `lecture_summary_pipeline/prompts.py` — you are encouraged to rewrite them for your own discipline, note style, or language while keeping the pipeline structure intact.
 
 The scaffolding makes such edits safe and manageable:
 
@@ -150,7 +150,7 @@ This pipeline was developed and tested against **DeepSeek V4 Pro** (`deepseek-v4
 
 If you only have audio or video, transcribe it first. A practical route is to have an AI agent drive an ASR service for you:
 
-- **Recommended (what the author uses):** Aliyun DashScope's Qwen-Audio 3.0 ASR, model `qwen-audio-3.0-asr-flash-filetrans` (file-transcription endpoint). An agent can script it with the `dashscope` Python SDK or through DashScope's OpenAI-compatible endpoint.
+- **Recommended (tested with):** Aliyun DashScope's Qwen-Audio 3.0 ASR, model `qwen-audio-3.0-asr-flash-filetrans` (file-transcription endpoint). An agent can script it with the `dashscope` Python SDK or through DashScope's OpenAI-compatible endpoint.
 - **Local alternative:** Whisper or faster-whisper, if you prefer to keep recordings on your own machine.
 
 Clean the resulting transcript lightly (remove obvious ASR garbage, keep the content verbatim otherwise — the Assembler prompt already tolerates and silently corrects small transcription errors in names and terminology), then run this pipeline.
