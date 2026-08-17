@@ -1,10 +1,14 @@
 # Faithful Lecture Notes
 
-Turn a lecture transcript (plus optional slides) into proportionate, source-faithful study notes — engineered to keep the LLM honest. The pipeline follows a strict plan-then-assemble design: a single **Architect** LLM call reads the full sources and produces a structured Assembly Plan (a JSON set of section work orders); parallel **Assembler** LLM calls then each write exactly one section, seeing the full sources but only their own work order; deterministic code stitches the sections in plan order and runs a structural audit. **No LLM call ever reads or rewrites the whole generated document** — the anti-hallucination core of the design: the merge is mechanical, the audit is code, and every node checkpoints to disk so an interrupted run resumes exactly where it stopped.
+Turn a lecture transcript (plus optional slides) into proportionate, source-faithful study notes — engineered to keep the LLM honest.
+
+One **Architect** LLM call reads the full sources and plans the notes as structured section work orders. Parallel **Assembler** calls each write exactly one section: full sources, but only their own assignment. Deterministic code stitches the sections in plan order and audits the result.
+
+**No LLM call ever reads or rewrites the whole generated document.** The merge is mechanical. The audit is code. Every node checkpoints to disk, so an interrupted run resumes exactly where it stopped.
 
 ## Design philosophy
 
-Two convictions shape everything in this pipeline:
+Three convictions shape everything in this pipeline:
 
 1. **Decompose a sophisticated task into small, easy ones.** "Read a two-hour lecture and produce faithful, well-proportioned notes" is a hard single task: long input, competing emphases, many judgement calls. LLMs fail these jobs in predictable ways — drift, omission, invented content — and the risk grows with how much one call is asked to hold and produce. So the pipeline never asks any call to do the whole job. One model call only *plans* the notes (the Architect); each writing call produces *one bounded section* (an Assembler); and everything that does not require understanding — routing, validation, stitching, auditing — is done by deterministic code, which does not hallucinate at all.
 
