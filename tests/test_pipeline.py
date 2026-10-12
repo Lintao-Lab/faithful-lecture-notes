@@ -136,21 +136,9 @@ class PlanTests(unittest.TestCase):
         with self.assertRaises(PlanContractError):
             normalise_assembly_plan(plan)
 
-    def test_preview_signal_outside_final_fails_audit(self) -> None:
+    def test_preview_wording_does_not_fail_audit(self) -> None:
         plan = normalise_assembly_plan(valid_raw_plan())
         plan.sections[0].purpose = "Explain formation and preview next week's topic."
-        outputs = [
-            "## 1. Formation\n\nFormation.",
-            "## 2. Administrative Notes and Preview\n\nPreview.",
-        ]
-        audit = audit_outputs(
-            plan=plan, section_outputs=outputs, final_markdown="\n\n".join(outputs)
-        )
-        self.assertFalse(audit.passed)
-        self.assertEqual(len(audit.preview_signals_outside_final), 1)
-
-    def test_preview_signal_in_substantive_output_fails_audit(self) -> None:
-        plan = normalise_assembly_plan(valid_raw_plan())
         outputs = [
             "## 1. Formation\n\nNext week we will cover remedies.",
             "## 2. Administrative Notes and Preview\n\nPreview.",
@@ -158,8 +146,68 @@ class PlanTests(unittest.TestCase):
         audit = audit_outputs(
             plan=plan, section_outputs=outputs, final_markdown="\n\n".join(outputs)
         )
-        self.assertFalse(audit.passed)
-        self.assertEqual(audit.preview_signals_outside_final, ["1:output:Next week"])
+        self.assertTrue(audit.passed)
+
+    def test_administrative_section_is_optional(self) -> None:
+        plan = normalise_assembly_plan(
+            AssemblyPlan(
+                lecture_focus="Explain formation, then consideration.",
+                sections=[
+                    SectionWorkOrder(
+                        section_id="sec-a",
+                        section_title="Formation",
+                        section_type="substantive",
+                        purpose="Explain how agreement is formed.",
+                        central_concepts=["FORMATION-CENTRAL"],
+                        boundary_note="",
+                        necessary_cross_references=[],
+                    ),
+                    SectionWorkOrder(
+                        section_id="sec-b",
+                        section_title="Consideration",
+                        section_type="substantive",
+                        purpose="Explain the consideration requirement.",
+                        central_concepts=["CONSIDERATION-CENTRAL"],
+                        boundary_note="",
+                        necessary_cross_references=[],
+                    ),
+                ],
+            )
+        )
+        outputs = [
+            "## 1. Formation\n\nFormation.",
+            "## 2. Consideration\n\nConsideration.",
+        ]
+        audit = audit_outputs(
+            plan=plan, section_outputs=outputs, final_markdown="\n\n".join(outputs)
+        )
+        self.assertTrue(audit.passed)
+
+    def test_administrative_section_may_sit_before_the_end(self) -> None:
+        raw = valid_raw_plan().model_copy(deep=True)
+        raw.sections = [raw.sections[1], raw.sections[0]]
+        plan = normalise_assembly_plan(raw)
+        self.assertEqual(plan.sections[0].section_type, "administrative_preview")
+        outputs = [
+            "## 1. Administrative Notes and Preview\n\n- Assessment date.",
+            "## 2. Formation\n\nFormation.",
+        ]
+        audit = audit_outputs(
+            plan=plan, section_outputs=outputs, final_markdown="\n\n".join(outputs)
+        )
+        self.assertTrue(audit.passed)
+
+    def test_a_second_administrative_section_is_rejected(self) -> None:
+        plan = valid_raw_plan().model_copy(deep=True)
+        plan.sections.append(plan.sections[1].model_copy(update={"section_id": "sec-c"}))
+        with self.assertRaises(PlanContractError):
+            normalise_assembly_plan(plan)
+
+    def test_administrative_section_title_must_be_exact(self) -> None:
+        plan = valid_raw_plan().model_copy(deep=True)
+        plan.sections[1].section_title = "Admin Notes"
+        with self.assertRaises(PlanContractError):
+            normalise_assembly_plan(plan)
 
     def test_stitcher_removes_closed_and_open_thinking_blocks(self) -> None:
         self.assertEqual(

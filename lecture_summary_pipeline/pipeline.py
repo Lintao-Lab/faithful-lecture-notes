@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from .inputs import load_source_text
 from .models import AssemblyPlan, AuditReport, PipelineResult, SectionWorkOrder
 from .plan import (
-    PREVIEW_SIGNAL_RE,
     PlanContractError,
     audit_outputs,
     has_expected_section_heading,
@@ -195,7 +194,7 @@ class LectureSummaryPipeline:
             "assembler": _sha256_text(ASSEMBLER_SYSTEM_PROMPT),
         }
         manifest_body = {
-            "contract_version": 3,
+            "contract_version": 4,
             "transcript": _source_manifest(state["transcript_path"], transcript_text),
             "slides": _source_manifest(state.get("slides_path"), slides_text),
             "config": self.config.semantic_dict(),
@@ -602,23 +601,19 @@ def _section_stem(index: int, section: SectionWorkOrder) -> str:
 
 
 def _plan_audit(plan: AssemblyPlan) -> dict[str, Any]:
-    invalid_preview_fields: list[str] = []
-    for section in plan.sections[:-1]:
-        values = [
-            section.section_title,
-            section.purpose,
-            section.boundary_note,
-            *section.central_concepts,
-        ]
-        if any(PREVIEW_SIGNAL_RE.search(value or "") for value in values):
-            invalid_preview_fields.append(section.section_id)
+    admin_sections = [
+        section
+        for section in plan.sections
+        if section.section_type == "administrative_preview"
+    ]
     return {
         "sections": len(plan.sections),
         "section_count_guideline_passed": 6 <= len(plan.sections) <= 9,
-        "final_section_rule_passed": bool(plan.sections)
-        and plan.sections[-1].section_type == "administrative_preview"
-        and plan.sections[-1].section_title == "Administrative Notes and Preview",
-        "preview_signals_outside_final": invalid_preview_fields,
+        "final_section_rule_passed": len(admin_sections) <= 1
+        and (
+            not admin_sections
+            or admin_sections[0].section_title == "Administrative Notes and Preview"
+        ),
         "cross_references": sum(
             len(section.necessary_cross_references) for section in plan.sections
         ),

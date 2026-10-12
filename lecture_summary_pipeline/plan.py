@@ -15,18 +15,6 @@ class PlanContractError(ValueError):
     """Raised when a structured Architect response is unsafe to route."""
 
 
-DETAILED_CROSS_REFERENCE_RE = re.compile(
-    r"For\s+a\s+detailed\s+analysis\s+of\s+(?P<concept>[^,\n]+),\s*"
-    r"refer\s+to\s+(?:Section\s+)?(?P<target>[0-9]+)",
-    re.IGNORECASE,
-)
-PREVIEW_SIGNAL_RE = re.compile(
-    r"\b(?:next\s+(?:week|lecture|class)|preview(?:s|ed|ing)?|"
-    r"to\s+be\s+covered\s+next)\b",
-    re.IGNORECASE,
-)
-
-
 def normalise_assembly_plan(plan: AssemblyPlan) -> AssemblyPlan:
     """Validate routing semantics and replace model-chosen IDs with stable numeric IDs."""
 
@@ -186,47 +174,21 @@ def audit_outputs(
 
     missing_headings: list[str] = []
     empty_sections: list[str] = []
-    unplanned_mentions: list[str] = []
-    preview_signals: list[str] = []
     for section, output in zip(plan.sections, section_outputs):
         text = output or ""
         if not text.strip():
             empty_sections.append(section.section_id)
         if not has_expected_section_heading(section, text):
             missing_headings.append(section.section_id)
-        if section.section_type == "substantive":
-            for match in PREVIEW_SIGNAL_RE.finditer(text):
-                preview_signals.append(f"{section.section_id}:output:{match.group(0)}")
 
-        planned_targets = {
-            item.target_section for item in section.necessary_cross_references
-        }
-        for match in DETAILED_CROSS_REFERENCE_RE.finditer(text):
-            target = match.group("target")
-            if target not in planned_targets:
-                unplanned_mentions.append(
-                    f"{section.section_id}:{match.group('concept').strip()}->{target}"
-                )
-
-    for section in plan.sections[:-1]:
-        fields = {
-            "section_title": [section.section_title],
-            "purpose": [section.purpose],
-            "central_concepts": section.central_concepts,
-            "boundary_note": [section.boundary_note],
-        }
-        for field_name, values in fields.items():
-            for value in values:
-                if PREVIEW_SIGNAL_RE.search(value):
-                    preview_signals.append(f"{section.section_id}:{field_name}:{value}")
-
-    plan_final_rule_passed = (
-        bool(plan.sections)
-        and all(section.section_type == "substantive" for section in plan.sections[:-1])
-        and (
-            plan.sections[-1].section_type == "administrative_preview"
-            and plan.sections[-1].section_title == "Administrative Notes and Preview"
-        )
+    admin_sections = [
+        section
+        for section in plan.sections
+        if section.section_type == "administrative_preview"
+    ]
+    plan_admin_rule_passed = len(admin_sections) <= 1 and (
+        not admin_sections
+        or admin_sections[0].section_title == "Administrative Notes and Preview"
     )
     final_h2_headings = re.findall(r"^##\s+(.+?)\s*$", final_markdown, re.MULTILINE)
     expected_final_h2 = (
@@ -235,7 +197,7 @@ def audit_outputs(
         else ""
     )
     final_rule_passed = (
-        plan_final_rule_passed
+        plan_admin_rule_passed
         and bool(final_h2_headings)
         and final_h2_headings[-1] == expected_final_h2
     )
@@ -261,8 +223,6 @@ def audit_outputs(
                 invalid_targets,
                 missing_headings,
                 empty_sections,
-                unplanned_mentions,
-                preview_signals,
                 disallowed_markers,
             )
         )
@@ -281,8 +241,6 @@ def audit_outputs(
         invalid_cross_reference_targets=invalid_targets,
         sections_missing_expected_h2_heading=missing_headings,
         empty_sections=empty_sections,
-        unplanned_cross_reference_mentions=unplanned_mentions,
-        preview_signals_outside_final=preview_signals,
         disallowed_path_markers=disallowed_markers,
         notes=notes,
     )
@@ -291,17 +249,22 @@ def audit_outputs(
 def _validate_section_types(plan: AssemblyPlan) -> None:
     if not plan.sections:
         raise PlanContractError("The Assembly Plan must contain at least one section.")
-    for section in plan.sections[:-1]:
-        if section.section_type != "substantive":
-            raise PlanContractError(
-                "Only the final section may be administrative_preview."
-            )
-    final = plan.sections[-1]
-    if final.section_type != "administrative_preview":
-        raise PlanContractError("The final section must be administrative_preview.")
-    if final.section_title.strip() != "Administrative Notes and Preview":
+    admin_sections = [
+        section
+        for section in plan.sections
+        if section.section_type == "administrative_preview"
+    ]
+    if len(admin_sections) > 1:
         raise PlanContractError(
-            "The final section title must be 'Administrative Notes and Preview'."
+            "The Assembly Plan may contain at most one administrative_preview section."
+        )
+    if (
+        admin_sections
+        and admin_sections[0].section_title.strip() != "Administrative Notes and Preview"
+    ):
+        raise PlanContractError(
+            "The administrative_preview section title must be "
+            "'Administrative Notes and Preview'."
         )
 
 

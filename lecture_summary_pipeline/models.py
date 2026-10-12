@@ -42,8 +42,6 @@ class AuditReport(StrictModel):
     invalid_cross_reference_targets: list[str] = Field(default_factory=list)
     sections_missing_expected_h2_heading: list[str] = Field(default_factory=list)
     empty_sections: list[str] = Field(default_factory=list)
-    unplanned_cross_reference_mentions: list[str] = Field(default_factory=list)
-    preview_signals_outside_final: list[str] = Field(default_factory=list)
     disallowed_path_markers: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
