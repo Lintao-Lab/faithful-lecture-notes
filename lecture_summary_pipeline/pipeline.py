@@ -489,18 +489,20 @@ class LectureSummaryPipeline:
     @staticmethod
     def _write_text(path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text((text or "").rstrip() + "\n", encoding="utf-8")
+        path.write_text((text or "").rstrip() + "\n", encoding="utf-8", newline="\n")
 
     @staticmethod
     def _write_exact_text(path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        path.write_text(text, encoding="utf-8", newline="\n")
 
     @staticmethod
     def _write_json(path: Path, data: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
         )
 
 

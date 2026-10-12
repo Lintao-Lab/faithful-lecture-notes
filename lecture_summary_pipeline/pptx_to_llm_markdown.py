@@ -320,7 +320,7 @@ def convert_pptx(
 
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    markdown_path.write_text(markdown, encoding="utf-8")
+    markdown_path.write_text(markdown, encoding="utf-8", newline="\n")
     report = {
         "source": str(pptx_path),
         "output": str(markdown_path),
@@ -336,7 +336,7 @@ def convert_pptx(
         "slide_details": slide_reports,
     }
     report_path.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n"
     )
     return report
 
