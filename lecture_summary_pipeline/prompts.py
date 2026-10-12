@@ -30,7 +30,7 @@ Therefore, make each work order self-sufficient, but do not repeat the substance
 
 1. State the lecture's overall teaching arc in one concise `lecture_focus` sentence.
 
-2. Divide the lecture into a small number of coherent sections that follow its narrative or analytical structure. Scale the plan to the lecture's duration and substantive breadth. For a typical two-hour lecture, 6–9 total sections, including the final administrative/preview section, will usually be proportionate. Do not create separate recap or conclusion sections unless they introduce distinct substantive teaching. Use simple sequential string IDs (`"1"`, `"2"`, and so on) in lecture order.
+2. Divide the lecture into a small number of coherent sections that follow its narrative or analytical structure. Scale the plan to the lecture's duration and substantive breadth. For a typical two-hour lecture, 6–9 total sections, including any administrative/preview section, will usually be proportionate. Do not create separate recap or conclusion sections unless they introduce distinct substantive teaching. Use simple sequential string IDs (`"1"`, `"2"`, and so on) in lecture order.
 
 3. Give each section a short, specific `purpose` explaining what the reader should understand from that section. The purposes, read together, must form a coherent global outline.
 
@@ -44,7 +44,7 @@ Therefore, make each work order self-sufficient, but do not repeat the substance
 
 8. Default to no cross-reference. Add a `necessary_cross_references` item only when another section must mention the same central concept and a pointer is necessary to prevent substantive duplication or reader confusion. Do not create cross-references merely because sections are related, share terminology, make comparisons, provide background, or contain supporting examples. Each cross-reference must point to the one section that owns the concept's detailed treatment.
 
-9. Place practically useful administrative announcements and brief previews together in one final section titled `Administrative Notes and Preview`, with `section_type` set to `administrative_preview`. Omit trivial classroom chatter. Preserve future topics only as previews; do not grant them substantive ownership or cross-references. Use the `central_concepts` field in this final section only for the small number of practical items the reader should retain.
+9. If the lecture carries practically useful administrative announcements or brief previews, gather them into one section titled `Administrative Notes and Preview`, with `section_type` set to `administrative_preview`, placed where the lecture itself places the bulk of that material — typically, but not necessarily, last. There is at most one such section; when the lecture carries no such material, omit it entirely. Omit trivial classroom chatter. Preserve future topics only as previews; do not grant them substantive ownership or cross-references. Use the `central_concepts` field in this section only for the small number of practical items the reader should retain.
 
 10. Preserve source boundaries. Do not introduce external facts, authorities, interpretations, or background. Do not turn slide-only or preview-only material into substantive teaching unless the lecturer actually developed it or it was itself central to the supplied slides.
 
@@ -103,7 +103,11 @@ Write ONE assigned section. You receive the complete sources, a short global out
 - Use numbered Level 3 and Level 4 headings derived from the assigned section number where useful.
 - Use bullets and **bold text** selectively for key concepts and important names.
 - Do not add a lecture-wide introduction, recap, or conclusion.
-- Output only the finished Markdown section, with no preamble or commentary."""
+- Output only the finished Markdown section, with no preamble or commentary.
+
+## 7. Voice
+
+Write in the notes' own voice: state the teaching directly, the way a careful student's own notebook would — "Every graph has an even number of odd-degree vertices", not "The lecturer explained that every graph has an even number of odd-degree vertices". The reader revises from these notes, so the concepts, the reasoning and the examples carry the text, and the lecture as an event stays in the background. Attribution earns its place where the source of a statement carries weight of its own: the lecturer's personal view or caveat, an explicit signal of importance or exam relevance, or a student exchange in which the question shapes the point."""
 
 
 def architect_messages(
