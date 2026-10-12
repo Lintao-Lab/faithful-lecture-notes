@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lecture-summary-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 description = "Plan-then-assemble pipeline that turns a lecture transcript (plus optional slides) into proportionate, source-faithful study notes."
 readme = "README.md"
 requires-python = ">=3.11"

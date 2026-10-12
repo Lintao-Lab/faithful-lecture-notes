@@ -40,7 +40,7 @@ The pipeline runs as a linear LangGraph of seven nodes:
 
 Key mechanisms:
 
-- **The Assembly Plan is the routing table.** Each section work order carries a `section_id`, `section_title`, `purpose`, a restrained list of `central_concepts`, an optional `boundary_note` preventing overlap with neighbouring sections, and optional `necessary_cross_references`. The plan is validated by code (duplicate IDs rejected and renumbered, cross-reference targets must exist, the final section must be `Administrative Notes and Preview`); an invalid plan is sent back to the Architect with the validation error.
+- **The Assembly Plan is the routing table.** Each section work order carries a `section_id`, `section_title`, `purpose`, a restrained list of `central_concepts`, an optional `boundary_note` preventing overlap with neighbouring sections, and optional `necessary_cross_references`. The plan is validated by code (duplicate IDs rejected and renumbered, cross-reference targets must exist, at most one `Administrative Notes and Preview` section — placed wherever the lecture itself puts that material, and omitted entirely when the lecture carries none); an invalid plan is sent back to the Architect with the validation error.
 - **Assembler isolation.** Every Assembler receives the complete transcript and slides, a short global outline mechanically derived from all sections' IDs/titles/purposes, and only its own work order — so it cannot see what other sections own, which prevents duplication at the mechanism level.
 - **Contract-checked retries.** Every LLM call has a hard output contract (valid JSON for the Architect; exact `## N. Title` heading for Assemblers) checked by code, with automatic retries (default 10 attempts per node).
 - **Checkpointed resume.** Every node's output is written to disk. `--resume` continues an interrupted run, but only if the run fingerprint — hashes of the inputs, configuration, prompts, and implementation — matches the stored manifest exactly. A changed input or model means a new output directory, not a mixed run.
@@ -53,7 +53,7 @@ Key mechanisms:
 | Assemblers: write one assigned section each | Plan validation, ID normalisation, outline/work-order rendering |
 | | Output contract checks and retries |
 | | Stitching sections in plan order (no rewriting) |
-| | Structural audit: section count, verbatim H2 headings, cross-reference discipline, preview placement, path-leak markers |
+| | Structural audit: section count, verbatim H2 headings, valid cross-reference targets, final-heading placement, path-leak markers |
 
 ### LLM roles and defaults
 
@@ -82,6 +82,16 @@ This repository contains no model weights and no "AI magic" of its own — it is
 The API calls exist to make an LLM **follow the preset process reliably**, not to chat with it ad hoc. Each call is dispatched with a fixed system prompt, a narrow task, and a hard output contract that code verifies before accepting the result (valid JSON matching the plan schema for the Architect; the exact `## N. Title` heading for each Assembler). Calls that fail the contract are retried automatically. That is what "stable" means here: the same inputs run through the same fixed pipeline and produce structurally verified notes, regardless of which compliant endpoint you point it at.
 
 Cost is therefore predictable: one run is one Architect call plus one Assembler call per planned section (typically 7–10 calls for a two-hour lecture). Every node checkpoints to disk, so an interrupted run resumes without re-paying for completed sections.
+
+## The operator model (for humans and AI agents)
+
+The pipeline is designed to be *operated*, not supervised step by step. Whoever runs it — a human or an AI agent — is its operator, and the operator's job is deliberately small:
+
+1. **Place the inputs and run the command.** The table under *Input formats* is the whole input contract; no hand-preparation is needed.
+2. **Check the audit.** `"passed": true` in `05_audit.json` means the structural contract held; a failed audit exits with code 2 and leaves every artefact in place for inspection.
+3. **Fix upstream, never downstream.** If a section reads wrong, adjust the inputs, the model settings, or the prompts and re-run (`--resume` when nothing has changed). Do not hand-edit files under `03_sections/` or `04_final/`: hand edits are invisible to the run fingerprint and produce notes the manifest no longer describes.
+
+Everything else — conversion, planning, section writing, stitching, validation — is the pipeline's job. The judgement calls live in the prompts and the contracts, not in the operator's hands.
 
 ## Setup guide (for humans and AI agents)
 
