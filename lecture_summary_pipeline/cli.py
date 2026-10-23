@@ -50,6 +50,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--assembler-max-tokens", type=int, default=65536)
     parser.add_argument("--parallelism", type=int, default=50)
     parser.add_argument(
+        "--assembler-prime-delay-seconds",
+        type=float,
+        default=20.0,
+        help=(
+            "Cache-priming stagger for the Assembler fan-out: the first section "
+            "is dispatched alone, then the remaining sections after this delay "
+            "so sibling calls hit the provider's prefix cache; 0 dispatches "
+            "everything at once"
+        ),
+    )
+    parser.add_argument(
         "--max-retries", type=int, default=3, help="SDK and JSON-parse retries"
     )
     parser.add_argument("--node-retry-attempts", type=int, default=10)
@@ -74,6 +85,7 @@ def main() -> None:
         parallelism=args.parallelism,
         node_retry_attempts=args.node_retry_attempts,
         node_retry_delay_seconds=args.node_retry_delay_seconds,
+        assembler_prime_delay_seconds=args.assembler_prime_delay_seconds,
         architect_enable_thinking=not args.disable_architect_thinking,
         assembler_enable_thinking=not args.disable_assembler_thinking,
         resume=args.resume,

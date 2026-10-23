@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from lecture_summary_pipeline.client import (
@@ -95,6 +96,78 @@ class CredentialResolutionTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "LLM_API_KEY"):
                 OpenAICompatibleClient()
+
+
+class CacheUsageTests(unittest.TestCase):
+    def _client(
+        self, base_url: str = "https://api.deepseek.com"
+    ) -> OpenAICompatibleClient:
+        return OpenAICompatibleClient(api_key="test-key", base_url=base_url)
+
+    def test_deepseek_cache_fields_are_captured(self) -> None:
+        client = self._client()
+        client._record_cache_usage(
+            SimpleNamespace(
+                usage=SimpleNamespace(
+                    prompt_cache_hit_tokens=120,
+                    prompt_cache_miss_tokens=30,
+                )
+            )
+        )
+        self.assertEqual(
+            client.last_cache_usage(),
+            {"prompt_cache_hit_tokens": 120, "prompt_cache_miss_tokens": 30},
+        )
+
+    def test_usage_without_cache_fields_yields_none(self) -> None:
+        client = self._client()
+        client._record_cache_usage(
+            SimpleNamespace(usage=SimpleNamespace(prompt_tokens=100))
+        )
+        self.assertIsNone(client.last_cache_usage())
+
+    def test_openrouter_cached_tokens_are_normalised(self) -> None:
+        client = self._client("https://openrouter.ai/api/v1")
+        client._record_cache_usage(
+            SimpleNamespace(
+                usage=SimpleNamespace(
+                    prompt_tokens=1000,
+                    prompt_tokens_details=SimpleNamespace(cached_tokens=800),
+                )
+            )
+        )
+        self.assertEqual(
+            client.last_cache_usage(),
+            {"prompt_cache_hit_tokens": 800, "prompt_cache_miss_tokens": 200},
+        )
+
+    def test_complete_text_records_usage_for_the_pipeline(self) -> None:
+        client = self._client()
+        client._sync_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(message=SimpleNamespace(content="hello"))
+                        ],
+                        usage=SimpleNamespace(
+                            prompt_cache_hit_tokens=5,
+                            prompt_cache_miss_tokens=7,
+                        ),
+                    )
+                )
+            )
+        )
+        self.assertEqual(
+            client.complete_text(
+                model="deepseek-v4-pro", messages=[], temperature=0.0
+            ),
+            "hello",
+        )
+        self.assertEqual(
+            client.last_cache_usage(),
+            {"prompt_cache_hit_tokens": 5, "prompt_cache_miss_tokens": 7},
+        )
 
 
 if __name__ == "__main__":

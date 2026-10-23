@@ -8,7 +8,7 @@ import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Awaitable, Callable, Literal, Protocol, TypedDict
 
 from pydantic import BaseModel
 
@@ -73,6 +73,11 @@ class PipelineConfig:
     parallelism: int = 50
     node_retry_attempts: int = 10
     node_retry_delay_seconds: float = 3.0
+    # Cache-priming stagger for the Assembler fan-out: the first section is
+    # dispatched alone and the remaining sections after this delay, so
+    # sibling calls hit the provider's prefix cache over the shared prompt
+    # prefix. 0 dispatches everything at once.
+    assembler_prime_delay_seconds: float = 20.0
     architect_enable_thinking: bool = True
     assembler_enable_thinking: bool = True
     resume: bool = False
@@ -194,7 +199,7 @@ class LectureSummaryPipeline:
             "assembler": _sha256_text(ASSEMBLER_SYSTEM_PROMPT),
         }
         manifest_body = {
-            "contract_version": 4,
+            "contract_version": 5,
             "transcript": _source_manifest(state["transcript_path"], transcript_text),
             "slides": _source_manifest(state.get("slides_path"), slides_text),
             "config": self.config.semantic_dict(),
@@ -309,6 +314,10 @@ class LectureSummaryPipeline:
                     break
                 time.sleep(max(0.0, self.config.node_retry_delay_seconds))
 
+        cache_usage = _cache_usage_of(self.architect_client)
+        if cache_usage:
+            request.update(cache_usage)
+            self._write_json(output_dir / "01_architect_request.json", request)
         self._write_json(output_dir / "01_architect_attempts.json", attempts)
         if plan is None or raw_plan is None:
             raise RuntimeError(
@@ -341,7 +350,12 @@ class LectureSummaryPipeline:
     def _assemble_sections(self, state: LectureSummaryState) -> dict[str, Any]:
         return {"section_outputs": asyncio.run(self._assemble_sections_async(state))}
 
-    async def _assemble_sections_async(self, state: LectureSummaryState) -> list[str]:
+    async def _assemble_sections_async(
+        self,
+        state: LectureSummaryState,
+        *,
+        prime_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> list[str]:
         output_dir = Path(state["output_dir"])
         sections_dir = output_dir / "03_sections"
         sections_dir.mkdir(parents=True, exist_ok=True)
@@ -438,6 +452,10 @@ class LectureSummaryPipeline:
                     if attempt >= max(1, self.config.node_retry_attempts):
                         break
                     await asyncio.sleep(max(0.0, self.config.node_retry_delay_seconds))
+            cache_usage = _cache_usage_of(self.assembler_client)
+            if cache_usage:
+                request.update(cache_usage)
+                self._write_json(sections_dir / f"{stem}.request.json", request)
             self._write_json(sections_dir / f"{stem}.attempts.json", attempts)
             if not text.strip() or not has_expected_section_heading(section, text):
                 raise RuntimeError(
@@ -451,11 +469,30 @@ class LectureSummaryPipeline:
             stem = _section_stem(index, section)
             return await english_section(index, section, stem)
 
-        tasks = [
-            assemble_one(index, section)
+        # Cache-priming dispatch: the first section in plan order goes out
+        # alone; after the prime delay the shared prompt prefix (system
+        # rules, transcript, slides, global outline) sits in the provider's
+        # prefix cache, so the remaining sections fan out onto warm cache.
+        # A single-section plan and a zero delay dispatch everything at once.
+        sections = [
+            (index, section)
             for index, section in enumerate(state["assembly_plan"].sections, start=1)
         ]
-        return list(await asyncio.gather(*tasks))
+        delay = self.config.assembler_prime_delay_seconds
+        if len(sections) > 1 and delay > 0:
+            first_index, first_section = sections[0]
+            primer = asyncio.create_task(assemble_one(first_index, first_section))
+            await prime_sleep(delay)
+            followers = [
+                asyncio.create_task(assemble_one(index, section))
+                for index, section in sections[1:]
+            ]
+            return list(await asyncio.gather(primer, *followers))
+        return list(
+            await asyncio.gather(
+                *(assemble_one(index, section) for index, section in sections)
+            )
+        )
 
     def _stitch_sections(self, state: LectureSummaryState) -> dict[str, Any]:
         return {"final_notes": stitch_section_outputs(state["section_outputs"])}
@@ -539,6 +576,16 @@ def _attempt_record(
     if error is not None:
         record["error"] = str(error)
     return record
+
+
+def _cache_usage_of(client: LLMClient) -> dict[str, int] | None:
+    """Read prompt-cache token usage a client captured, when available."""
+
+    probe = getattr(client, "last_cache_usage", None)
+    if not callable(probe):
+        return None
+    usage = probe()
+    return usage if isinstance(usage, dict) and usage else None
 
 
 def _structured_value(completion: Any, schema_type: type[BaseModel]) -> Any:

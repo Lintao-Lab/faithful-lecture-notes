@@ -42,6 +42,7 @@ Key mechanisms:
 
 - **The Assembly Plan is the routing table.** Each section work order carries a `section_id`, `section_title`, `purpose`, a restrained list of `central_concepts`, an optional `boundary_note` preventing overlap with neighbouring sections, and optional `necessary_cross_references`. The plan is validated by code (duplicate IDs rejected and renumbered, cross-reference targets must exist, at most one `Administrative Notes and Preview` section — placed wherever the lecture itself puts that material, and omitted entirely when the lecture carries none); an invalid plan is sent back to the Architect with the validation error.
 - **Assembler isolation.** Every Assembler receives the complete transcript and slides, a short global outline mechanically derived from all sections' IDs/titles/purposes, and only its own work order — so it cannot see what other sections own, which prevents duplication at the mechanism level.
+- **Prompt-cache-aware fan-out.** Every Assembler request carries the shared context — transcript, slides, global outline — as one byte-identical prefix, with the section work order last, so providers with automatic prefix caching reuse that prefix across calls. The first section is dispatched alone; the rest follow after `--assembler-prime-delay-seconds` (default 20 s), giving the provider time to warm the cache. A single-section plan, or a delay of `0`, dispatches everything at once. When the API reports cache hits and misses, the counts are recorded in the request records.
 - **Contract-checked retries.** Every LLM call has a hard output contract (valid JSON for the Architect; exact `## N. Title` heading for Assemblers) checked by code, with automatic retries (default 10 attempts per node).
 - **Checkpointed resume.** Every node's output is written to disk. `--resume` continues an interrupted run, but only if the run fingerprint — hashes of the inputs, configuration, prompts, and implementation — matches the stored manifest exactly. A changed input or model means a new output directory, not a mixed run.
 
@@ -81,7 +82,7 @@ This repository contains no model weights and no "AI magic" of its own — it is
 
 The API calls exist to make an LLM **follow the preset process reliably**, not to chat with it ad hoc. Each call is dispatched with a fixed system prompt, a narrow task, and a hard output contract that code verifies before accepting the result (valid JSON matching the plan schema for the Architect; the exact `## N. Title` heading for each Assembler). Calls that fail the contract are retried automatically. That is what "stable" means here: the same inputs run through the same fixed pipeline and produce structurally verified notes, regardless of which compliant endpoint you point it at.
 
-Cost is therefore predictable: one run is one Architect call plus one Assembler call per planned section (typically 7–10 calls for a two-hour lecture). Every node checkpoints to disk, so an interrupted run resumes without re-paying for completed sections.
+Cost is therefore predictable: one run is one Architect call plus one Assembler call per planned section (typically 7–10 calls for a two-hour lecture). Assembler calls share a byte-identical prompt prefix, so providers with automatic prefix caching charge less for the repeated transcript and slides; the staggered fan-out is what lets that cache warm before the parallel calls arrive. Every node checkpoints to disk, so an interrupted run resumes without re-paying for completed sections.
 
 ## The operator model (for humans and AI agents)
 
@@ -190,7 +191,7 @@ python -m lecture_summary_pipeline.cli \
 - `--resume` continues an interrupted run in the same output directory. Resume is **fingerprint-checked**: the stored manifest hashes the input contents, the pipeline configuration, the prompt set, and the implementation files. If anything changed — different inputs, different models, edited prompts — resume is refused and you must use a new output directory. This prevents mixing artefacts from different runs.
 - After a run, check `05_audit.json`; `"passed": true` means the structural audit succeeded. If the audit fails, the CLI exits with **exit code 2** and leaves all artefacts in place for inspection.
 
-Useful optional flags: `--architect-model`, `--assembler-model`, `--parallelism` (default 50), `--disable-architect-thinking`, `--disable-assembler-thinking`, `--architect-temperature`, `--assembler-temperature`, `--node-retry-attempts` (default 10). Full list: `python -m lecture_summary_pipeline.cli --help`.
+Useful optional flags: `--architect-model`, `--assembler-model`, `--parallelism` (default 50), `--assembler-prime-delay-seconds` (default 20), `--disable-architect-thinking`, `--disable-assembler-thinking`, `--architect-temperature`, `--assembler-temperature`, `--node-retry-attempts` (default 10). Full list: `python -m lecture_summary_pipeline.cli --help`.
 
 ### Run artefacts
 
@@ -211,6 +212,8 @@ runs/week1/
   05_audit.json               structural audit report
 ```
 
+`01_architect_request.json` and each `03_sections/*.request.json` are written before the call and gain `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` when the provider reports prefix-cache usage.
+
 ## Input formats
 
 | Format | Behaviour |
@@ -227,7 +230,7 @@ runs/week1/
 pytest tests -q
 ```
 
-The suite uses a mocked LLM client — it makes no network calls and spends no API credit. It covers plan validation, the audit, retries, resume/fingerprint behaviour, input routing, format conversion, and the API client's credential resolution.
+The suite uses a mocked LLM client — it makes no network calls and spends no API credit. It covers plan validation, the audit, retries, resume/fingerprint behaviour, prompt-cache message ordering, the staggered fan-out, cache-usage recording, input routing, format conversion, and the API client's credential resolution.
 
 ## Disclaimer
 

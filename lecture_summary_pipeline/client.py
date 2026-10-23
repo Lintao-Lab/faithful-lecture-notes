@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import contextvars
 import json
 import os
-from typing import TypeVar
+from typing import Any, TypeVar
 from urllib.parse import urlparse
 
 from openai import AsyncOpenAI, OpenAI
@@ -42,6 +43,10 @@ class OpenAICompatibleClient:
 
         self.max_parse_attempts = max_parse_attempts
         self._uses_official_deepseek = _is_official_deepseek_base_url(resolved_base_url)
+        self._uses_openrouter = _is_openrouter_base_url(resolved_base_url)
+        self._last_cache_usage: contextvars.ContextVar[dict[str, int] | None] = (
+            contextvars.ContextVar(f"prompt_cache_usage_{id(self)}", default=None)
+        )
         self._sync_client = OpenAI(
             api_key=resolved_api_key,
             base_url=resolved_base_url,
@@ -84,6 +89,7 @@ class OpenAICompatibleClient:
             temperature=temperature,
             **kwargs,
         )
+        self._record_cache_usage(response)
         return (response.choices[0].message.content or "").strip()
 
     async def acomplete_text(
@@ -115,6 +121,7 @@ class OpenAICompatibleClient:
             temperature=temperature,
             **kwargs,
         )
+        self._record_cache_usage(response)
         return (response.choices[0].message.content or "").strip()
 
     def complete_json(
@@ -151,6 +158,45 @@ class OpenAICompatibleClient:
             f"Failed to parse structured model output: {last_error}. Raw snippet: {snippet}"
         ) from last_error
 
+    def last_cache_usage(self) -> dict[str, int] | None:
+        """Prompt-cache token usage of the most recent call in this context.
+
+        DeepSeek reports ``prompt_cache_hit_tokens``/``prompt_cache_miss_tokens``
+        on the usage object; OpenRouter reports a hit count under
+        ``prompt_tokens_details.cached_tokens``. Providers that report neither
+        yield ``None``. A context variable keeps parallel Assembler calls on a
+        shared client from overwriting each other's figures.
+        """
+
+        return self._last_cache_usage.get()
+
+    def _record_cache_usage(self, response: Any) -> None:
+        usage = getattr(response, "usage", None)
+        fields: dict[str, int] = {}
+        for key in ("prompt_cache_hit_tokens", "prompt_cache_miss_tokens"):
+            value = getattr(usage, key, None)
+            if value is None and usage is not None:
+                extra = getattr(usage, "model_extra", None)
+                if isinstance(extra, dict):
+                    value = extra.get(key)
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, (int, float)):
+                fields[key] = int(value)
+        if not fields and self._uses_openrouter:
+            details = getattr(usage, "prompt_tokens_details", None)
+            cached = getattr(details, "cached_tokens", None)
+            prompt_tokens = getattr(usage, "prompt_tokens", None)
+            if isinstance(cached, (int, float)) and not isinstance(cached, bool):
+                fields["prompt_cache_hit_tokens"] = int(cached)
+                if isinstance(prompt_tokens, (int, float)) and not isinstance(
+                    prompt_tokens, bool
+                ):
+                    fields["prompt_cache_miss_tokens"] = max(
+                        int(prompt_tokens) - int(cached), 0
+                    )
+        self._last_cache_usage.set(fields or None)
+
 
 def _thinking_kwargs(
     *, official_deepseek: bool, reasoning_effort: str | None = None
@@ -169,6 +215,10 @@ def _thinking_kwargs(
 
 def _is_official_deepseek_base_url(base_url: str) -> bool:
     return (urlparse(base_url).hostname or "").lower() == "api.deepseek.com"
+
+
+def _is_openrouter_base_url(base_url: str) -> bool:
+    return (urlparse(base_url).hostname or "").lower() == "openrouter.ai"
 
 
 def _coerce_json_payload(raw: str) -> dict:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextvars
 import hashlib
 import json
 import re
@@ -22,7 +24,9 @@ from lecture_summary_pipeline.plan import (
     PlanContractError,
     audit_outputs,
     normalise_assembly_plan,
+    render_global_outline,
 )
+from lecture_summary_pipeline.prompts import assembler_messages
 
 
 @dataclass(slots=True)
@@ -114,6 +118,65 @@ class FlakyAssemblerClient(FakeClient):
             self.remaining_failures -= 1
             raise RuntimeError("temporary assembler failure")
         return await super().acomplete_text(**kwargs)
+
+
+class CacheUsageClient(FakeClient):
+    def last_cache_usage(self) -> dict[str, int] | None:
+        return {"prompt_cache_hit_tokens": 100, "prompt_cache_miss_tokens": 900}
+
+
+class PerSectionCacheUsageClient(FakeClient):
+    """Cache figures live in the task context, as they do in the real client."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._usage = contextvars.ContextVar("test_cache_usage", default=None)
+
+    async def acomplete_text(self, *, model, messages, **kwargs):
+        text = await super().acomplete_text(model=model, messages=messages, **kwargs)
+        payload = messages[-1]["content"]
+        section_id = re.search(r'"section_id":\s*"([^"]+)"', payload).group(1)
+        self._usage.set(
+            {
+                "prompt_cache_hit_tokens": int(section_id) * 100,
+                "prompt_cache_miss_tokens": 10,
+            }
+        )
+        return text
+
+    def last_cache_usage(self) -> dict[str, int] | None:
+        return self._usage.get()
+
+
+class DispatchRecordingClient:
+    """Fake Assembler client recording the order sections are dispatched."""
+
+    def __init__(self) -> None:
+        self.dispatched: list[str] = []
+
+    async def acomplete_text(self, *, model, messages, **kwargs):
+        payload = messages[-1]["content"]
+        section_id = re.search(r'"section_id":\s*"([^"]+)"', payload).group(1)
+        title = re.search(r'"section_title":\s*"([^"]+)"', payload).group(1)
+        self.dispatched.append(section_id)
+        return f"## {section_id}. {title}\n\nSection body."
+
+
+def single_section_plan() -> AssemblyPlan:
+    return AssemblyPlan(
+        lecture_focus="Record practical announcements.",
+        sections=[
+            SectionWorkOrder(
+                section_id="sec-only",
+                section_title="Administrative Notes and Preview",
+                section_type="administrative_preview",
+                purpose="Record the assessment date and next-week preview.",
+                central_concepts=["ADMIN-ITEM"],
+                boundary_note="",
+                necessary_cross_references=[],
+            )
+        ],
+    )
 
 
 class PlanTests(unittest.TestCase):
@@ -234,6 +297,8 @@ class PipelineTests(unittest.TestCase):
                 parallelism=2,
                 node_retry_attempts=2,
                 node_retry_delay_seconds=0.0,
+                # dispatch all Assemblers at once; the stagger has its own tests
+                assembler_prime_delay_seconds=0.0,
                 resume=resume,
             ),
         )
@@ -480,6 +545,231 @@ class PipelineTests(unittest.TestCase):
             ["max"] * 2,
         )
         self.assertEqual(config.parallelism, 50)
+
+    def test_default_config_staggers_assembler_dispatch_by_twenty_seconds(self) -> None:
+        self.assertEqual(PipelineConfig().assembler_prime_delay_seconds, 20.0)
+
+    def test_assembler_messages_share_a_byte_identical_prefix(self) -> None:
+        plan = normalise_assembly_plan(valid_raw_plan())
+        outline = render_global_outline(plan)
+        first = assembler_messages(
+            section=plan.sections[0],
+            global_outline=outline,
+            transcript_text="Transcript source.",
+            slides_text="Slides source.",
+        )
+        second = assembler_messages(
+            section=plan.sections[1],
+            global_outline=outline,
+            transcript_text="Transcript source.",
+            slides_text="Slides source.",
+        )
+        self.assertEqual(first[0], second[0])
+        first_content = first[-1]["content"]
+        second_content = second[-1]["content"]
+        marker = "<Assigned_Work_Order>"
+        self.assertEqual(
+            first_content.split(marker)[0], second_content.split(marker)[0]
+        )
+        self.assertLess(
+            first_content.index("<Full_Transcript>"), first_content.index(marker)
+        )
+        self.assertLess(
+            first_content.index("<Lecture_Slides>"), first_content.index(marker)
+        )
+        self.assertLess(
+            first_content.index("<Global_Outline>"), first_content.index(marker)
+        )
+        self.assertTrue(first_content.endswith("</Assigned_Work_Order>"))
+        self.assertNotEqual(first_content, second_content)
+
+    def test_cache_usage_is_recorded_additively_in_request_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            transcript, slides = self._sources(root)
+            result = self._pipeline(CacheUsageClient()).run(
+                transcript_path=transcript,
+                slides_path=slides,
+                output_dir=root / "run",
+            )
+            self.assertTrue(result.audit.passed)
+
+            architect_request = json.loads(
+                (root / "run" / "01_architect_request.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(architect_request["prompt_cache_hit_tokens"], 100)
+            self.assertEqual(architect_request["prompt_cache_miss_tokens"], 900)
+            self.assertEqual(architect_request["node"], "architect")
+
+            section_requests = sorted(
+                (root / "run" / "03_sections").glob("*.request.json")
+            )
+            self.assertTrue(section_requests)
+            for path in section_requests:
+                record = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(record["prompt_cache_hit_tokens"], 100)
+                self.assertEqual(record["prompt_cache_miss_tokens"], 900)
+                self.assertEqual(record["node"], "assembler")
+
+    def test_parallel_assemblers_record_their_own_cache_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            transcript, slides = self._sources(root)
+            self._pipeline(PerSectionCacheUsageClient()).run(
+                transcript_path=transcript,
+                slides_path=slides,
+                output_dir=root / "run",
+            )
+            records = {}
+            for path in (root / "run" / "03_sections").glob("*.request.json"):
+                record = json.loads(path.read_text(encoding="utf-8"))
+                records[record["section_id"]] = record
+            self.assertEqual(records["1"]["prompt_cache_hit_tokens"], 100)
+            self.assertEqual(records["2"]["prompt_cache_hit_tokens"], 200)
+            self.assertEqual(
+                {record["prompt_cache_miss_tokens"] for record in records.values()},
+                {10},
+            )
+
+    def test_request_records_have_no_cache_fields_without_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            transcript, slides = self._sources(root)
+            self._pipeline(FakeClient()).run(
+                transcript_path=transcript,
+                slides_path=slides,
+                output_dir=root / "run",
+            )
+            architect_request = json.loads(
+                (root / "run" / "01_architect_request.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertNotIn("prompt_cache_hit_tokens", architect_request)
+            for path in (root / "run" / "03_sections").glob("*.request.json"):
+                record = json.loads(path.read_text(encoding="utf-8"))
+                self.assertNotIn("prompt_cache_hit_tokens", record)
+
+    def test_prime_delay_flows_through_the_full_run_and_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            transcript, slides = self._sources(root)
+            client = FakeClient()
+            pipeline = LectureSummaryPipeline(
+                client=client,
+                config=PipelineConfig(
+                    parallelism=2,
+                    node_retry_attempts=2,
+                    node_retry_delay_seconds=0.0,
+                    assembler_prime_delay_seconds=0.05,
+                ),
+            )
+            result = pipeline.run(
+                transcript_path=transcript,
+                slides_path=slides,
+                output_dir=root / "run",
+            )
+            self.assertTrue(result.audit.passed)
+            self.assertEqual(client.assembler_calls, 2)
+            manifest = json.loads(
+                (root / "run" / "00_run_manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["config"]["assembler_prime_delay_seconds"], 0.05
+            )
+
+
+class AssemblerPrimeStaggerTests(unittest.TestCase):
+    """Cache-priming stagger: the first section alone, the rest after a delay."""
+
+    def _state(self, root: Path, plan: AssemblyPlan) -> dict:
+        normalised = normalise_assembly_plan(plan)
+        return {
+            "output_dir": str(root / "run"),
+            "transcript_text": "Transcript source.",
+            "slides_text": "Slides source.",
+            "assembly_plan": normalised,
+            "global_outline": render_global_outline(normalised),
+        }
+
+    def _pipeline(self, client, *, prime_delay: float) -> LectureSummaryPipeline:
+        return LectureSummaryPipeline(
+            client=client,
+            config=PipelineConfig(
+                parallelism=2,
+                node_retry_attempts=2,
+                node_retry_delay_seconds=0.0,
+                assembler_prime_delay_seconds=prime_delay,
+            ),
+        )
+
+    def test_first_section_dispatched_alone_before_the_delay_elapses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            state = self._state(root, valid_raw_plan())
+            client = DispatchRecordingClient()
+            sleep_delays: list[float] = []
+            dispatched_when_sleep_returned: list[list[str]] = []
+
+            async def fake_prime_sleep(delay: float) -> None:
+                sleep_delays.append(delay)
+                await asyncio.sleep(0)
+                dispatched_when_sleep_returned.append(list(client.dispatched))
+
+            outputs = asyncio.run(
+                self._pipeline(client, prime_delay=20.0)._assemble_sections_async(
+                    state, prime_sleep=fake_prime_sleep
+                )
+            )
+
+            self.assertEqual(sleep_delays, [20.0])
+            self.assertEqual(dispatched_when_sleep_returned, [["1"]])
+            self.assertEqual(client.dispatched, ["1", "2"])
+            self.assertEqual(len(outputs), 2)
+            self.assertIn("## 1. Formation", outputs[0])
+            self.assertIn("## 2. Administrative Notes and Preview", outputs[1])
+
+    def test_zero_delay_dispatches_all_sections_at_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            state = self._state(root, valid_raw_plan())
+            client = DispatchRecordingClient()
+            sleep_delays: list[float] = []
+
+            async def unexpected_sleep(delay: float) -> None:
+                sleep_delays.append(delay)
+
+            outputs = asyncio.run(
+                self._pipeline(client, prime_delay=0.0)._assemble_sections_async(
+                    state, prime_sleep=unexpected_sleep
+                )
+            )
+
+            self.assertEqual(sleep_delays, [])
+            self.assertCountEqual(client.dispatched, ["1", "2"])
+            self.assertEqual(len(outputs), 2)
+
+    def test_single_section_plan_skips_the_stagger_entirely(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            state = self._state(root, single_section_plan())
+            client = DispatchRecordingClient()
+            sleep_delays: list[float] = []
+
+            async def unexpected_sleep(delay: float) -> None:
+                sleep_delays.append(delay)
+
+            outputs = asyncio.run(
+                self._pipeline(client, prime_delay=20.0)._assemble_sections_async(
+                    state, prime_sleep=unexpected_sleep
+                )
+            )
+
+            self.assertEqual(sleep_delays, [])
+            self.assertEqual(client.dispatched, ["1"])
+            self.assertEqual(len(outputs), 1)
 
 
 if __name__ == "__main__":

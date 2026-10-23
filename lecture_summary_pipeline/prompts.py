@@ -133,7 +133,12 @@ def architect_messages(
             "content": (
                 "Return exactly one valid JSON object matching this JSON Schema. "
                 "Do not use markdown fences or add commentary.\n"
-                + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+                + json.dumps(
+                    schema,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
             ),
         },
     ]
@@ -164,23 +169,26 @@ def assembler_messages(
     transcript_text: str,
     slides_text: str,
 ) -> list[dict[str, str]]:
+    # Block order is a prompt-cache contract: everything shared across the
+    # parallel Assembler calls forms one byte-identical prefix, and the
+    # per-call work order is the final element.
     return [
         {"role": "system", "content": ASSEMBLER_SYSTEM_PROMPT},
         {
             "role": "user",
             "content": (
+                "<Full_Transcript>\n"
+                f"{transcript_text}\n"
+                "</Full_Transcript>\n\n"
+                "<Lecture_Slides>\n"
+                f"{slides_text}\n"
+                "</Lecture_Slides>\n\n"
                 "<Global_Outline>\n"
                 f"{global_outline}\n"
                 "</Global_Outline>\n\n"
                 "<Assigned_Work_Order>\n"
                 f"{section.model_dump_json(indent=2)}\n"
-                "</Assigned_Work_Order>\n\n"
-                "<Lecture_Slides>\n"
-                f"{slides_text}\n"
-                "</Lecture_Slides>\n\n"
-                "<Full_Transcript>\n"
-                f"{transcript_text}\n"
-                "</Full_Transcript>"
+                "</Assigned_Work_Order>"
             ),
         },
     ]
